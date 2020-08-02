@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Objects;
 
 import at.markushi.ui.CircleButton;
-import ru.job4j.tourist.store.SQLStore;
+import ru.job4j.tourist.store.SQLStoreMarks;
 
 public class MarkListFragment extends Fragment {
     private RecyclerView mViewsForMarks;
@@ -41,7 +41,7 @@ public class MarkListFragment extends Fragment {
     }
 
     private void updateUI() {
-        SQLStore store = SQLStore.getInstance(getActivity());
+        SQLStoreMarks store = SQLStoreMarks.getInstance(getActivity());
         List<Mark> marks = store.getMarks();
         if (mAdapter == null) {
             mAdapter = new MarkAdapter(marks);

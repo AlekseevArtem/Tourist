@@ -1,8 +1,8 @@
 package ru.job4j.tourist.store;
 
-public class TouristDbSchema {
-    public static final class TouristTable {
-        public static final String NAME = "tourist";
+public class MarkDbSchema {
+    public static final class TouristMarksTable {
+        public static final String NAME = "tourist_marks";
 
         public static final class Cols {
             public static final String LATITUDE = "latitude";

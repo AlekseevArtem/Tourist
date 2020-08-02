@@ -13,24 +13,24 @@ import java.util.List;
 
 import ru.job4j.tourist.Mark;
 
-public class SQLStore extends SQLiteOpenHelper {
-    public static final String DB = "tourist.db";
+public class SQLStoreMarks extends SQLiteOpenHelper {
+    public static final String DB = "tourist_marks.db";
     public static final int VERSION = 1;
     private List<Mark> mMarks = new ArrayList<>();
-    private static SQLStore INST;
+    private static SQLStoreMarks INST;
 
-    private SQLStore(@Nullable Context context) {
+    private SQLStoreMarks(@Nullable Context context) {
         super(context, DB, null , VERSION);
     }
 
     @Override
     public void onCreate(SQLiteDatabase db) {
         db.execSQL(
-                "create table " + TouristDbSchema.TouristTable.NAME + " (" +
+                "create table " + MarkDbSchema.TouristMarksTable.NAME + " (" +
                         "id integer primary key autoincrement, " +
-                        TouristDbSchema.TouristTable.Cols.LATITUDE + " real, " +
-                        TouristDbSchema.TouristTable.Cols.LONGITUDE + " real, " +
-                        TouristDbSchema.TouristTable.Cols.TITLE + " text " +
+                        MarkDbSchema.TouristMarksTable.Cols.LATITUDE + " real, " +
+                        MarkDbSchema.TouristMarksTable.Cols.LONGITUDE + " real, " +
+                        MarkDbSchema.TouristMarksTable.Cols.TITLE + " text " +
                         ")"
         );
     }
@@ -39,9 +39,9 @@ public class SQLStore extends SQLiteOpenHelper {
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
     }
 
-    public static SQLStore getInstance(Context context) {
+    public static SQLStoreMarks getInstance(Context context) {
         if (INST == null){
-            INST = new SQLStore(context);
+            INST = new SQLStoreMarks(context);
             INST.updateStore();
         }
         return INST;
@@ -49,7 +49,7 @@ public class SQLStore extends SQLiteOpenHelper {
 
     private void updateStore (){
         Cursor cursor = this.getWritableDatabase().query(
-                TouristDbSchema.TouristTable.NAME,
+                MarkDbSchema.TouristMarksTable.NAME,
                 null,
                 null, null,
                 null, null, null
@@ -58,9 +58,9 @@ public class SQLStore extends SQLiteOpenHelper {
         while (!cursor.isAfterLast()) {
             this.mMarks.add(new Mark(
                     cursor.getInt(cursor.getColumnIndex("id")),
-                    cursor.getDouble(cursor.getColumnIndex(TouristDbSchema.TouristTable.Cols.LATITUDE)),
-                    cursor.getDouble(cursor.getColumnIndex(TouristDbSchema.TouristTable.Cols.LONGITUDE)),
-                    cursor.getString(cursor.getColumnIndex(TouristDbSchema.TouristTable.Cols.TITLE))
+                    cursor.getDouble(cursor.getColumnIndex(MarkDbSchema.TouristMarksTable.Cols.LATITUDE)),
+                    cursor.getDouble(cursor.getColumnIndex(MarkDbSchema.TouristMarksTable.Cols.LONGITUDE)),
+                    cursor.getString(cursor.getColumnIndex(MarkDbSchema.TouristMarksTable.Cols.TITLE))
             ));
             cursor.moveToNext();
         }
@@ -73,10 +73,10 @@ public class SQLStore extends SQLiteOpenHelper {
 
     public void addMark(Mark mark) {
         ContentValues value = new ContentValues();
-        value.put(TouristDbSchema.TouristTable.Cols.LATITUDE, mark.getLatitude());
-        value.put(TouristDbSchema.TouristTable.Cols.LONGITUDE, mark.getLongitude());
-        value.put(TouristDbSchema.TouristTable.Cols.TITLE, mark.getTitle());
-        int id = (int) this.getWritableDatabase().insert(TouristDbSchema.TouristTable.NAME, null, value);
+        value.put(MarkDbSchema.TouristMarksTable.Cols.LATITUDE, mark.getLatitude());
+        value.put(MarkDbSchema.TouristMarksTable.Cols.LONGITUDE, mark.getLongitude());
+        value.put(MarkDbSchema.TouristMarksTable.Cols.TITLE, mark.getTitle());
+        int id = (int) this.getWritableDatabase().insert(MarkDbSchema.TouristMarksTable.NAME, null, value);
         mark.setId(id);
         this.mMarks.add(mark);
     }

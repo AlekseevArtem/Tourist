@@ -3,4 +3,13 @@
     <string name="title_activity_maps">Tourist</string>
     <string name="i_am_here">I am here.</string>
     <string name="list_of_marks">List of marks</string>
+    <string name="mode">Mode</string>
+    <string name="change_mode">Change mode</string>
+    <string name="finish_track">Finish track</string>
+    <string name="start_track">Start track</string>
+    <string name="list_of_tracks">List of tracks</string>
+    <string-array name="choice_modes">
+        <item>Marks</item>
+        <item>Tracks</item>
+    </string-array>
 </resources>

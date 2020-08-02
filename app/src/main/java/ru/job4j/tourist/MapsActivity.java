@@ -17,6 +17,7 @@ import android.widget.Button;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
+import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.FragmentActivity;
 
 import com.google.android.gms.common.api.Status;
@@ -26,28 +27,50 @@ import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.Polyline;
+import com.google.android.gms.maps.model.PolylineOptions;
 import com.google.android.libraries.places.api.Places;
 import com.google.android.libraries.places.api.model.Place;
 import com.google.android.libraries.places.widget.AutocompleteSupportFragment;
 import com.google.android.libraries.places.widget.listener.PlaceSelectionListener;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
-import ru.job4j.tourist.store.SQLStore;
+import io.reactivex.Observable;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
+import ru.job4j.tourist.store.MemStoreTrack;
+import ru.job4j.tourist.store.SQLStoreMarks;
+import ru.job4j.tourist.store.SQLStoreTrack;
 
-public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback,SingleChoiceDialogFragment.SingleChoiceListener {
+    private final int SHOW_MARK = 1;
+    private final String LOG = "MainActivity";
     private Location mLocation;
     private GoogleMap mMap;
-    private SQLStore mStore;
-    private final int SHOW_MARK = 1;
+    private SQLStoreMarks mMarkStore;
+    private SQLStoreTrack mTrackStore;
+    private int mMode;
+    private Disposable sbr;
+    private MemStoreTrack mTempTrackStore;
+    private boolean sbrInProcess = false;
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putInt("mode", mMode);
+        outState.putBoolean("sbrInProcess", sbrInProcess);
+    }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == SHOW_MARK && resultCode == RESULT_OK) {
             int id = data.getIntExtra("mark", 0);
-            Mark mark = mStore.findMarkByID(id);
+            Mark mark = mMarkStore.findMarkByID(id);
             mMap.moveCamera(CameraUpdateFactory
                     .newLatLngZoom(new LatLng(mark.getLatitude(), mark.getLongitude()), 15));
         }
@@ -57,21 +80,30 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
-        mStore = SQLStore.getInstance(this);
-        Button current = findViewById(R.id.current);
-        current.setOnClickListener(this::getCurrentLocation);
-        Button list = findViewById(R.id.list);
-        list.setOnClickListener(this::toMarkListActivity);
+        if(savedInstanceState!= null) {
+            mMode = savedInstanceState.getInt("mode");
+            if(savedInstanceState.getBoolean("sbrInProcess")) startTrack();
+        }
+        mMarkStore = SQLStoreMarks.getInstance(this);
+        mTrackStore = SQLStoreTrack.getInstance(this);
+        setDynamicButtons();
+        Button mode = findViewById(R.id.mode);
+        mode.setOnClickListener(v -> swapMode());
         if (isMapPermissionGranted()) {
             initMap();
         }
     }
 
-    @SuppressLint("MissingPermission")
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
-        setAllMarks();
+        if(mMode == 0) setAllMarks(); else setAllTracks();
+        initPlacesAPI();
+        initLocListener();
+    }
+
+    @SuppressLint("MissingPermission")
+    private void initLocListener() {
         LocationListener loc = new LocationListener() {
             @Override
             public void onLocationChanged(Location location) {
@@ -96,6 +128,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         Objects.requireNonNull(locationManager).
                 requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, loc);
+    }
+
+    private void initPlacesAPI() {
         Places.initialize(this, getString(R.string.google_maps_key));
         AutocompleteSupportFragment search = (AutocompleteSupportFragment)
                 getSupportFragmentManager().findFragmentById(R.id.autocomplete_fragment);
@@ -108,7 +143,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
             @Override
             public void onError(@NonNull Status status) {
-                Log.i("MainActivity", "An error occurred: " + status);
+                Log.i(LOG, "An error occurred: " + status);
             }
         });
     }
@@ -149,16 +184,21 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
+    private void swapMode() {
+        DialogFragment singleChoiceDialog = SingleChoiceDialogFragment.newInstance(mMode);
+        singleChoiceDialog.show(getSupportFragmentManager(), "Single choice dialog");
+    }
+
     private void addNewMark(LatLng coordinates, String title) {
         MarkerOptions marker = new MarkerOptions().position(coordinates).title(title);
         marker.flat(true);
         mMap.addMarker(marker);
         mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(coordinates, 15));
-        mStore.addMark(new Mark(coordinates.latitude, coordinates.longitude, title));
+        mMarkStore.addMark(new Mark(coordinates.latitude, coordinates.longitude, title));
     }
 
     private void setAllMarks() {
-        mStore.getMarks().stream().forEach(mark -> {
+        mMarkStore.getMarks().stream().forEach(mark -> {
             LatLng coordinates = new LatLng(mark.getLatitude(), mark.getLongitude());
             MarkerOptions marker = new MarkerOptions().position(coordinates).title(mark.getTitle());
             marker.flat(true);
@@ -166,8 +206,92 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         });
     }
 
+    private void setAllTracks() {
+        mTrackStore.getTracks().stream().forEach(track -> {
+            Polyline line = mMap.addPolyline(new PolylineOptions().addAll(track.getCoordinates()));
+            line.setColor(track.getColor());
+            line.setWidth(track.getWidth());
+        });
+    }
+
     private void toMarkListActivity(View view) {
         Intent intent = new Intent(this, MarkListActivity.class);
         startActivityForResult(intent, SHOW_MARK);
+    }
+
+    public void startTrack() {
+        if(mTempTrackStore == null) {
+            Track track = new Track("track", getResources().getColor(R.color.colorPrimaryDark), 3, new ArrayList<>());
+            mTempTrackStore = MemStoreTrack.getInstance(track);
+        }
+        Track track = mTempTrackStore.getTrack();
+        if(sbr == null || sbr.isDisposed()) {
+            if(track.getCoordinates().size() == 0){
+                track.getCoordinates().add(new LatLng(mLocation.getLatitude(), mLocation.getLongitude()));
+            }
+            this.sbr = Observable.interval(5, TimeUnit.SECONDS)
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(v -> track.getCoordinates().add(new LatLng(mLocation.getLatitude(), mLocation.getLongitude())));
+            sbrInProcess = true;
+            setDynamicButtons();
+        }
+    }
+
+    public void stopAndAddTrack() {
+        this.sbr.dispose();
+        Track track = mTempTrackStore.getTrack();
+        mTempTrackStore = null;
+        track.getCoordinates().add(new LatLng(mLocation.getLatitude(), mLocation.getLongitude()));
+        mTrackStore.addTrack(track);
+        sbrInProcess = false;
+        Polyline line = mMap.addPolyline(new PolylineOptions().addAll(track.getCoordinates()));
+        line.setColor(track.getColor());
+        line.setWidth(track.getWidth());
+        setDynamicButtons();
+    }
+
+    public void setDynamicButtons() {
+        Button action = findViewById(R.id.current);
+        Button list = findViewById(R.id.list);
+        list.setOnClickListener(this::toMarkListActivity);
+        if(mMode == 0) {
+            action.setText(R.string.i_am_here);
+            action.setOnClickListener(this::getCurrentLocation);
+            list.setEnabled(true);
+            list.setText(R.string.list_of_marks);
+        } else {
+            list.setEnabled(false);
+            list.setText(R.string.list_of_tracks);
+            if (!sbrInProcess) {
+                action.setText(R.string.start_track);
+                action.setOnClickListener(v -> startTrack());
+            } else {
+                action.setText(R.string.finish_track);
+                action.setOnClickListener(v -> stopAndAddTrack());
+            }
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (this.sbr != null) {
+            this.sbr.dispose();
+        }
+    }
+
+    @Override
+    public void onPositiveSwapMode(int mode) {
+        if (mMode != mode) {
+            mMode = mode;
+            mMap.clear();
+            setDynamicButtons();
+            if(mMode == 0) setAllMarks(); else setAllTracks();
+        }
+    }
+
+    @Override
+    public void onNegativeSwapMode() {
+
     }
 }

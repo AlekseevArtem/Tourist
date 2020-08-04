@@ -2,7 +2,9 @@ package ru.job4j.tourist;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.Location;
@@ -26,6 +28,7 @@ import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polyline;
 import com.google.android.gms.maps.model.PolylineOptions;
@@ -33,9 +36,16 @@ import com.google.android.libraries.places.api.Places;
 import com.google.android.libraries.places.api.model.Place;
 import com.google.android.libraries.places.widget.AutocompleteSupportFragment;
 import com.google.android.libraries.places.widget.listener.PlaceSelectionListener;
+import com.google.maps.DirectionsApiRequest;
+import com.google.maps.GeoApiContext;
+import com.google.maps.PendingResult;
+import com.google.maps.internal.PolylineEncoding;
+import com.google.maps.model.DirectionsResult;
+import com.google.maps.model.DirectionsRoute;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -46,17 +56,21 @@ import ru.job4j.tourist.store.MemStoreTrack;
 import ru.job4j.tourist.store.SQLStoreMarks;
 import ru.job4j.tourist.store.SQLStoreTrack;
 
-public class MapsActivity extends FragmentActivity implements OnMapReadyCallback,SingleChoiceDialogFragment.SingleChoiceListener {
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback,
+        SingleChoiceDialogFragment.SingleChoiceListener,
+        GoogleMap.OnInfoWindowClickListener{
     private final int SHOW_MARK = 1;
     private final String LOG = "MainActivity";
-    private Location mLocation;
-    private GoogleMap mMap;
+
     private SQLStoreMarks mMarkStore;
     private SQLStoreTrack mTrackStore;
+    private MemStoreTrack mTempTrackStore;
+    private Location mLocation;
+    private GoogleMap mMap;
     private int mMode;
     private Disposable sbr;
-    private MemStoreTrack mTempTrackStore;
     private boolean sbrInProcess = false;
+    private GeoApiContext mGeoApiContext;
 
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
@@ -152,7 +166,60 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+        if(mGeoApiContext == null){
+            mGeoApiContext = new GeoApiContext.Builder()
+                    .apiKey(getString(R.string.google_maps_key))
+                    .build();
+        }
     }
+
+    private void calculateDirections(Marker marker){
+        com.google.maps.model.LatLng destination = new com.google.maps.model.LatLng(
+                marker.getPosition().latitude,
+                marker.getPosition().longitude
+        );
+        DirectionsApiRequest directions = new DirectionsApiRequest(mGeoApiContext);
+        directions.origin(
+                new com.google.maps.model.LatLng(
+                        mLocation.getLatitude(),
+                        mLocation.getLongitude()
+                )
+        );
+        directions.destination(destination).setCallback(new PendingResult.Callback<DirectionsResult>() {
+            @Override
+            public void onResult(DirectionsResult result) {
+                Log.d(LOG, "onResult: successfully retrieved directions.");
+                addPolylinesToMap(result);
+            }
+
+            @Override
+            public void onFailure(Throwable e) {
+                Log.e(LOG, "onFailure: " + e.getMessage() );
+
+            }
+        });
+    }
+
+    private void addPolylinesToMap(final DirectionsResult result){
+        runOnUiThread(() -> {
+            for(DirectionsRoute route: result.routes){
+                List<com.google.maps.model.LatLng> decodedPath = PolylineEncoding.decode(route.overviewPolyline.getEncodedPath());
+
+                List<LatLng> newDecodedPath = new ArrayList<>();
+                for(com.google.maps.model.LatLng latLng: decodedPath){
+                    newDecodedPath.add(new LatLng(
+                            latLng.lat,
+                            latLng.lng
+                    ));
+                }
+                Polyline polyline = mMap.addPolyline(new PolylineOptions().addAll(newDecodedPath));
+                polyline.setColor(getResources().getColor(R.color.colorPrimaryDark));
+                polyline.setClickable(true);
+
+            }
+        });
+    }
+
 
     private boolean isMapPermissionGranted() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -204,6 +271,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             marker.flat(true);
             mMap.addMarker(marker);
         });
+        mMap.setOnInfoWindowClickListener(this);
     }
 
     private void setAllTracks() {
@@ -293,5 +361,19 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     @Override
     public void onNegativeSwapMode() {
 
+    }
+
+    @Override
+    public void onInfoWindowClick(Marker marker) {
+        final AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setMessage("Do you wanna build a path to " + marker.getTitle() + "?")
+                .setCancelable(true)
+                .setPositiveButton("Yes", (dialog, id) -> {
+                    calculateDirections(marker);
+                    dialog.dismiss();
+                })
+                .setNegativeButton("No", (dialog, id) -> dialog.cancel());
+        final AlertDialog alert = builder.create();
+        alert.show();
     }
 }
